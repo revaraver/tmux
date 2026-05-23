@@ -589,6 +589,32 @@ screen_redraw_set_context(struct client *c, struct screen_redraw_ctx *ctx)
 	    ctx->statustop);
 }
 
+/* Keep the real terminal cursor sane while the active pane shows a history viewport. */
+static void
+screen_redraw_update_viewport_cursor(struct client *c)
+{
+	struct window_pane	*wp;
+	struct screen		*s;
+
+	if (c->overlay_draw != NULL) {
+		tty_update_mode(&c->tty, c->tty.mode, NULL);
+		return;
+	}
+	wp = server_client_get_pane(c);
+	if (wp == NULL) {
+		tty_update_mode(&c->tty, c->tty.mode, NULL);
+		return;
+	}
+	s = wp->screen;
+	if (wp->viewport_offset != 0) {
+		c->tty.flags |= TTY_NOCURSOR;
+		tty_update_mode(&c->tty, s->mode, s);
+	} else {
+		c->tty.flags &= ~TTY_NOCURSOR;
+		tty_update_mode(&c->tty, s->mode, s);
+	}
+}
+
 /* Redraw entire screen. */
 void
 screen_redraw_screen(struct client *c)
@@ -605,7 +631,7 @@ screen_redraw_screen(struct client *c)
 
 	screen_redraw_set_context(c, &ctx);
 	tty_sync_start(&c->tty);
-	tty_update_mode(&c->tty, c->tty.mode, NULL);
+	screen_redraw_update_viewport_cursor(c);
 
 	if (flags & (CLIENT_REDRAWWINDOW|CLIENT_REDRAWBORDERS)) {
 		log_debug("%s: redrawing borders", c->name);
@@ -641,7 +667,7 @@ screen_redraw_pane(struct client *c, struct window_pane *wp)
 
 	screen_redraw_set_context(c, &ctx);
 	tty_sync_start(&c->tty);
-	tty_update_mode(&c->tty, c->tty.mode, NULL);
+	screen_redraw_update_viewport_cursor(c);
 
 	screen_redraw_draw_pane(&ctx, wp);
 
@@ -806,6 +832,13 @@ screen_redraw_draw_pane(struct screen_redraw_ctx *ctx, struct window_pane *wp)
 		top = 0;
 
 	s = wp->screen;
+	if (wp->viewport_offset != 0 && s == &wp->base) {
+		if (s->grid->hsize > wp->viewport_hscrolled)
+			wp->viewport_offset += s->grid->hsize - wp->viewport_hscrolled;
+		wp->viewport_hscrolled = s->grid->hsize;
+	}
+	if (wp->viewport_offset > s->grid->hsize)
+		wp->viewport_offset = s->grid->hsize;
 	for (j = 0; j < wp->sy; j++) {
 		if (wp->yoff + j < ctx->oy || wp->yoff + j >= ctx->oy + ctx->sy)
 			continue;
@@ -838,7 +871,13 @@ screen_redraw_draw_pane(struct screen_redraw_ctx *ctx, struct window_pane *wp)
 		    __func__, c->name, wp->id, i, j, x, y, width);
 
 		tty_default_colours(&defaults, wp);
-		tty_draw_line(tty, s, i, j, width, x, y, &defaults,
-		    wp->palette);
+		if (wp->viewport_offset != 0) {
+			tty_draw_line_at(tty, s, i, j,
+			    s->grid->hsize + j - wp->viewport_offset,
+			    width, x, y, &defaults, wp->palette);
+		} else {
+			tty_draw_line(tty, s, i, j, width, x, y, &defaults,
+			    wp->palette);
+		}
 	}
 }

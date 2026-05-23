@@ -1004,6 +1004,15 @@ struct window_pane {
 	struct window_pane_offset offset;
 	size_t		 base_offset;
 
+	/*
+	 * WT-like normal-mode scrollback viewport. When viewport_offset is
+	 * non-zero, the pane remains in normal input mode but redraws from
+	 * history instead of the live bottom. viewport_hscrolled anchors the
+	 * view while streaming output appends new history lines.
+	 */
+	u_int		 viewport_offset;
+	u_int		 viewport_hscrolled;
+
 	struct window_pane_resizes resize_queue;
 	struct event	 resize_timer;
 
@@ -2164,6 +2173,8 @@ void	tty_set_title(struct tty *, const char *);
 void	tty_update_mode(struct tty *, int, struct screen *);
 void	tty_draw_line(struct tty *, struct screen *, u_int, u_int, u_int,
 	    u_int, u_int, const struct grid_cell *, int *);
+void	tty_draw_line_at(struct tty *, struct screen *, u_int, u_int, u_int,
+	    u_int, u_int, u_int, const struct grid_cell *, int *);
 void	tty_sync_start(struct tty *);
 void	tty_sync_end(struct tty *);
 int	tty_open(struct tty *, char **);
@@ -2805,6 +2816,9 @@ void		 window_pane_set_palette(struct window_pane *, u_int, int);
 void		 window_pane_unset_palette(struct window_pane *, u_int);
 void		 window_pane_reset_palette(struct window_pane *);
 int		 window_pane_get_palette(struct window_pane *, int);
+void		 window_pane_viewport_clear(struct window_pane *);
+int		 window_pane_viewport_scroll(struct window_pane *, int);
+void		 window_pane_viewport_update(struct window_pane *, u_int);
 int		 window_pane_set_mode(struct window_pane *,
 		     struct window_pane *, const struct window_mode *,
 		     struct cmd_find_state *, struct args *);

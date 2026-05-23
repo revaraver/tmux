@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Paste Windows clipboard into the current tmux pane.
+# Fast path: ask Windows-side daemon for clipboard text over TCP, then tmux paste-buffer.
+# This is end-to-end testable and does not depend on foreground-window SendInput.
+set -u
+
+port=43877
+buf="__winclip_${$}"
+tmp="$(mktemp)"
+cleanup() {
+  rm -f "$tmp"
+  tmux delete-buffer -b "$buf" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+host=""
+if [ -r /etc/resolv.conf ]; then
+  host="$(awk '/nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null || true)"
+fi
+
+# 1) Fast daemon path. The daemon reads Windows clipboard in-process and streams UTF-8 text back.
+if [ -n "$host" ]; then
+  printf p | nc -w 1 -N "$host" "$port" >"$tmp" 2>/dev/null || true
+fi
+
+# Some setups forward localhost instead of host NAT IP.
+if [ ! -s "$tmp" ]; then
+  printf p | nc -w 1 -N 127.0.0.1 "$port" >"$tmp" 2>/dev/null || true
+fi
+
+# 2) Fallback: win32yank, still much faster than PowerShell cold-start.
+if [ ! -s "$tmp" ]; then
+  win32yank="/home/revar/.local/bin/win32yank.exe"
+  if [ -x "$win32yank" ]; then
+    "$win32yank" -o >"$tmp" 2>/dev/null || true
+  elif command -v win32yank.exe >/dev/null 2>&1; then
+    win32yank.exe -o >"$tmp" 2>/dev/null || true
+  fi
+fi
+
+# 3) Last fallback: PowerShell is slow, but keeps paste functional.
+if [ ! -s "$tmp" ]; then
+  powershell.exe -NoProfile -Command '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $c = Get-Clipboard -Raw; if ($null -ne $c) { [Console]::Out.Write($c) }' >"$tmp" 2>/dev/null || true
+fi
+
+# Empty clipboard or all methods failed: stay quiet, no tmux yellow error.
+[ -s "$tmp" ] || exit 0
+
+tmux load-buffer -b "$buf" "$tmp" || exit 0
+if [ -n "${TMUX_PASTE_TARGET:-}" ]; then
+  tmux paste-buffer -d -p -b "$buf" -t "$TMUX_PASTE_TARGET" || exit 0
+else
+  tmux paste-buffer -d -p -b "$buf" || exit 0
+fi

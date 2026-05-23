@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Exit tmux copy-mode, restore cursor, then send key/literal to the target pane.
+# Usage:
+#   tmux-copy-mode-send-key <pane_id> key <tmux-key>
+#   tmux-copy-mode-send-key <pane_id> literal <text>
+#   tmux-copy-mode-send-key <pane_id> altv
+set -u
+pane="${1:-}"
+mode="${2:-key}"
+value="${3:-}"
+[ -n "$pane" ] || exit 0
+
+tmux send-keys -t "$pane" -X cancel 2>/dev/null || true
+/home/revar/.local/bin/tmux-cursor-show >/dev/null 2>&1 || true
+# tmux may need one tick to leave copy-mode before accepting the real key.
+# This is not a cursor-hide delay; it only applies to the first typed key while
+# exiting copy-mode.
+sleep 0.02
+
+case "$mode" in
+  literal)
+    [ -n "$value" ] || exit 0
+    exec tmux send-keys -t "$pane" -l -- "$value"
+    ;;
+  altv)
+    tmux send-keys -t "$pane" Escape 2>/dev/null || true
+    exec tmux send-keys -t "$pane" v
+    ;;
+  key|*)
+    [ -n "$value" ] || exit 0
+    exec tmux send-keys -t "$pane" "$value"
+    ;;
+esac

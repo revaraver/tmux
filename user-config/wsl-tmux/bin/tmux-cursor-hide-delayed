@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Immediate cursor guard for tmux copy/view mode.
+# No sleep: the cursor must not flash first and hide later.
+# Hide when pane is in copy-mode OR normal-mode viewport; show only at live bottom.
+set -u
+pane="${1:-}"
+if [ -n "$pane" ]; then
+  state="$(tmux display-message -p -t "$pane" '#{pane_in_mode} #{pane_wt_offset}' 2>/dev/null || echo '0 0')"
+else
+  state="$(tmux display-message -p '#{pane_in_mode} #{pane_wt_offset}' 2>/dev/null || echo '0 0')"
+fi
+set -- $state
+in_mode="${1:-0}"
+wt_offset="${2:-0}"
+case "$wt_offset" in
+  ''|*[!0-9]*) wt_offset=0 ;;
+esac
+if [ "$in_mode" = "1" ] || [ "$wt_offset" -gt 0 ]; then
+  exec /home/revar/.local/bin/tmux-cursor-visibility hide
+else
+  exec /home/revar/.local/bin/tmux-cursor-visibility show
+fi

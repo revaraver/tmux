@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+prefix="$(tmux show-options -gv prefix 2>/dev/null || printf 'C-b')"
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+cat >"$tmp" <<HELP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ tmux 中文快捷键速查
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+前缀键 Prefix：${prefix}
+你现在的主入口：Ctrl+b，然后按后面的键。
+
+关闭本帮助：q
+保留原版英文帮助：Ctrl+b，然后按 F1
+鼠标模式：默认开启；Ctrl+b F2 或 Ctrl+g 可临时切换。
+鼠标操作：normal/input 模式下滚轮向上只是进入 WT-like 历史 viewport，不进入 copy-mode；流式输出时锚定当前位置，不会吸底；滚轮向下逐步回到底部；开始打字会直接回 live bottom 并输入；拖选/Prefix [ 才进入 copy-mode 复制；右键粘贴 Windows 剪贴板；中键打开 tmux 原生菜单。
+tmux 复制到 Windows：mouse on 后拖选松手会写入 Windows 剪贴板；历史浏览区会留在当前位置；开始打字时会退出 copy-mode、恢复光标并把输入送进当前 pane。
+
+──────────────────────────────────────────────────────────────────────
+会话 / 命令
+──────────────────────────────────────────────────────────────────────
+Ctrl+b  d        分离当前会话，回到普通 shell
+Ctrl+b  s        列出/切换会话
+Ctrl+b  $        重命名当前会话
+Ctrl+b  :        打开 tmux 命令行
+Ctrl+b  ?        打开这个中文帮助
+Ctrl+b  F1       打开 tmux 原版英文 list-keys 帮助
+Ctrl+b  F2       切换 mouse mode：默认开启；开=滚轮/copy-mode/右键粘贴；关=更接近裸 WT
+Ctrl+g           直接切换 mouse mode，不需要先按 Ctrl+b
+右键             粘贴 Windows 剪贴板到当前 pane
+中键             打开 tmux 原生 pane 菜单
+Alt+V            Hermes 粘贴剪贴板图片；即使在 copy-mode 里也会回到底部并透传给 Hermes
+
+──────────────────────────────────────────────────────────────────────
+窗口 window
+──────────────────────────────────────────────────────────────────────
+Ctrl+b  c        新建窗口
+Ctrl+b  ,        重命名当前窗口
+Ctrl+b  &        关闭当前窗口
+Ctrl+b  n        下一个窗口
+Ctrl+b  p        上一个窗口
+Ctrl+b  l        切回上一次使用的窗口
+Ctrl+b  0..9     切到对应编号窗口
+Ctrl+b  w        窗口列表/选择器
+Ctrl+b  f        按名称查找窗口
+Ctrl+b  .        修改当前窗口编号
+
+──────────────────────────────────────────────────────────────────────
+窗格 pane
+──────────────────────────────────────────────────────────────────────
+Ctrl+b  %        左右分屏
+Ctrl+b  "        上下分屏
+Ctrl+b  x        关闭当前窗格
+Ctrl+b  z        当前窗格全屏/还原
+Ctrl+b  o        切到下一个窗格
+Ctrl+b  ;        切回上一个窗格
+Ctrl+b  q        显示窗格编号，再按编号跳转
+Ctrl+b  {        当前窗格向前换位
+Ctrl+b  }        当前窗格向后换位
+Ctrl+b  !        把当前窗格拆成独立窗口
+Ctrl+b  S        开关 synchronize-panes：输入/粘贴广播到所有窗格
+Ctrl+b  空格     切换窗格布局
+Ctrl+b  Ctrl+方向 调整窗格大小
+Ctrl+b  Alt+方向  更大步长调整窗格大小
+Ctrl+b  方向键    切到对应方向窗格
+
+──────────────────────────────────────────────────────────────────────
+复制 / 滚动 / 搜索
+──────────────────────────────────────────────────────────────────────
+Ctrl+b  [        进入 copy-mode，可滚动历史输出
+copy-mode  q     退出 copy-mode
+copy-mode  /     向下搜索
+copy-mode  ?     向上搜索
+copy-mode  n     下一个搜索结果
+copy-mode  N     上一个搜索结果
+copy-mode  g     到历史顶部
+copy-mode  G     到历史底部
+copy-mode  Space 开始选择文本
+copy-mode  Enter 复制选择内容
+Ctrl+b  ]        粘贴 tmux buffer
+Ctrl+b  =        选择 tmux buffer
+
+──────────────────────────────────────────────────────────────────────
+常用命令行补刀
+──────────────────────────────────────────────────────────────────────
+tmux new -s 名字        新建命名会话
+tmux ls                列出会话
+tmux attach -t 名字     连接会话
+tmux kill-session -t 名字 关闭指定会话
+
+──────────────────────────────────────────────────────────────────────
+本机汉化/补丁说明
+──────────────────────────────────────────────────────────────────────
+这个系统使用 patched tmux：/home/revar/.local/tmux-current-key/bin/tmux
+补丁提供 #{current_key}，用于 copy-mode 中中文输入首字直通；配置层负责中文帮助、鼠标、剪贴板桥。
+配置文件：/home/revar/.tmux.conf
+帮助脚本：/home/revar/.local/bin/tmux-cn-help
+右键粘贴桥：/home/revar/.local/bin/tmux-send-ctrl-v -> Windows daemon /mnt/c/Users/revar/AppData/Local/HermesTools/ctrlv-daemon.exe
+回滚中文帮助/鼠标行为：删除 .tmux.conf 里对应“小nao tmux ...”区块后执行：
+  tmux source-file ~/.tmux.conf
+
+HELP
+
+if command -v less >/dev/null 2>&1 && [ -t 1 ]; then
+  LESS='-R -M --use-color -Dd+r$Du+b' less "$tmp"
+else
+  cat "$tmp"
+  printf '\n按 Enter 关闭...'
+  read -r _ || true
+fi

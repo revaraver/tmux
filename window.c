@@ -885,6 +885,90 @@ window_pane_create(struct window *w, u_int sx, u_int sy, u_int hlimit)
 	return (wp);
 }
 
+/* Clear WT-like normal-mode scrollback viewport. */
+void
+window_pane_viewport_clear(struct window_pane *wp)
+{
+	if (wp->viewport_offset == 0)
+		return;
+	wp->viewport_offset = 0;
+	wp->viewport_hscrolled = wp->base.grid->hscrolled;
+	wp->flags |= PANE_REDRAW;
+}
+
+/* Keep detached viewport anchored while new output scrolls into history. */
+void
+window_pane_viewport_update(struct window_pane *wp, u_int old_hsize)
+{
+	struct grid	*gd = wp->base.grid;
+	u_int		 delta;
+	int		 redraw = 0;
+
+	if (wp->viewport_offset == 0) {
+		wp->viewport_hscrolled = gd->hsize;
+		return;
+	}
+	if (gd->hsize >= old_hsize) {
+		delta = gd->hsize - old_hsize;
+		if (delta != 0) {
+			/*
+			 * Keep the viewport anchored to the same history line as new
+			 * output scrolls into history. The visible content does not
+			 * change when hsize and viewport_offset grow together, so do
+			 * not force a redraw here; redrawing every streamed line makes
+			 * fixed text in the detached viewport visibly flicker.
+			 */
+			if (wp->viewport_offset + delta < wp->viewport_offset) {
+				wp->viewport_offset = gd->hsize;
+				redraw = 1;
+			} else
+				wp->viewport_offset += delta;
+		}
+	} else
+		redraw = 1;
+	if (wp->viewport_offset > gd->hsize) {
+		wp->viewport_offset = gd->hsize;
+		redraw = 1;
+	}
+	wp->viewport_hscrolled = gd->hsize;
+	if (redraw)
+		wp->flags |= PANE_REDRAW;
+}
+
+/* Scroll WT-like normal-mode viewport. Positive is up, negative is down. */
+int
+window_pane_viewport_scroll(struct window_pane *wp, int n)
+{
+	struct grid	*gd = wp->base.grid;
+	u_int		 amount;
+
+	if (n == 0)
+		return (0);
+	if (gd->hsize == 0)
+		return (1);
+
+	if (n > 0) {
+		amount = (u_int)n;
+		if (amount > gd->hsize)
+			amount = gd->hsize;
+		if (wp->viewport_offset + amount < wp->viewport_offset ||
+		    wp->viewport_offset + amount > gd->hsize)
+			wp->viewport_offset = gd->hsize;
+		else
+			wp->viewport_offset += amount;
+	} else {
+		amount = (u_int)-n;
+		if (amount >= wp->viewport_offset)
+			wp->viewport_offset = 0;
+		else
+			wp->viewport_offset -= amount;
+	}
+
+	wp->viewport_hscrolled = gd->hsize;
+	wp->flags |= PANE_REDRAW;
+	return (1);
+}
+
 static void
 window_pane_destroy(struct window_pane *wp)
 {
@@ -1174,6 +1258,10 @@ window_pane_key(struct window_pane *wp, struct client *c, struct session *s,
 
 	if (wp->fd == -1 || wp->flags & PANE_INPUTOFF)
 		return (0);
+
+	/* Typing while detached from the live bottom reattaches, WT-style. */
+	if (!KEYC_IS_MOUSE(key) && wp->viewport_offset != 0)
+		window_pane_viewport_clear(wp);
 
 	if (input_key_pane(wp, key, m) != 0)
 		return (-1);

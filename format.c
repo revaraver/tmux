@@ -1035,6 +1035,33 @@ format_cb_pane_in_mode(struct format_tree *ft)
 	return (value);
 }
 
+/* Callback for pane_viewport_offset. */
+static void *
+format_cb_pane_viewport_offset(struct format_tree *ft)
+{
+	struct window_pane	*wp = ft->wp;
+	char			*value;
+
+	if (wp == NULL)
+		return (NULL);
+	xasprintf(&value, "%u", wp->viewport_offset);
+	return (value);
+}
+
+/* Callback for pane_viewport_hsize. */
+static void *
+format_cb_pane_viewport_hsize(struct format_tree *ft)
+{
+	struct window_pane	*wp = ft->wp;
+	char			*value;
+
+	if (wp == NULL)
+		return (NULL);
+	xasprintf(&value, "%u/%u", wp->viewport_hscrolled,
+	    wp->base.grid->hsize);
+	return (value);
+}
+
 /* Callback for pane_at_top. */
 static void *
 format_cb_pane_at_top(struct format_tree *ft)
@@ -2795,6 +2822,15 @@ static const struct format_table_entry format_table[] = {
 	{ "pane_tty", FORMAT_TABLE_STRING,
 	  format_cb_pane_tty
 	},
+	{ "pane_viewport_offset", FORMAT_TABLE_STRING,
+	  format_cb_pane_viewport_offset
+	},
+	{ "pane_viewport_hsize", FORMAT_TABLE_STRING,
+	  format_cb_pane_viewport_hsize
+	},
+	{ "pane_wt_offset", FORMAT_TABLE_STRING,
+	  format_cb_pane_viewport_offset
+	},
 	{ "pane_width", FORMAT_TABLE_STRING,
 	  format_cb_pane_width
 	},
@@ -3035,6 +3071,19 @@ format_create_add_item(struct format_tree *ft, struct cmdq_item *item)
 
 	cmdq_merge_formats(item, ft);
 	memcpy(&ft->m, m, sizeof ft->m);
+
+	/*
+	 * Expose the actual key that triggered the current binding.  This is
+	 * intentionally different from the binding key: an Any fallback binding
+	 * is looked up as KEYC_ANY, but event->key still carries the original
+	 * key/Unicode codepoint.  It lets configs cancel copy-mode and replay the
+	 * first IME/Unicode character with:
+	 *
+	 *     send-keys -X cancel \; send-keys -F -l "#{current_key}"
+	 */
+	format_add(ft, "current_key", "%s", key_string_lookup_key(event->key, 0));
+	format_add(ft, "current_key_with_flags", "%s",
+	    key_string_lookup_key(event->key, 1));
 }
 
 /* Create a new tree. */

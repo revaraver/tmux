@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Wheel-down for tmux copy-mode.
+# Priority: prevent accidental jump/exit to live bottom during streaming output.
+# Behavior:
+#   - middle: scroll down by Windows WheelScrollLines
+#   - near/bottom: allow reaching scroll_position=0, but DO NOT exit copy-mode
+#   - typing/paste key passthrough exits copy-mode and restores cursor
+#   - no lock-at-1, no timestamp throttle, no bottom auto-exit
+set -u
+
+pane="${1:-}"
+if [ -z "$pane" ]; then
+  pane="$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)"
+fi
+[ -n "$pane" ] || exit 0
+
+safe_pane="$(printf '%s' "$pane" | tr -c 'A-Za-z0-9_.=-' '_')"
+lock="/tmp/tmux-wheel-down.${safe_pane}.lock"
+exec 9>"$lock" 2>/dev/null || exit 0
+# Drop only truly concurrent duplicates from run-shell -b bursts.
+flock -n 9 || exit 0
+
+pos="$(tmux display-message -p -t "$pane" '#{scroll_position}' 2>/dev/null || echo '0')"
+case "$pos" in ''|*[!0-9]*) pos=0 ;; esac
+
+lines="$(tmux show-environment -g TMUX_WHEEL_LINES 2>/dev/null | sed 's/^TMUX_WHEEL_LINES=//' || true)"
+case "$lines" in ''|*[!0-9]*) lines=3 ;; esac
+if [ "$lines" -lt 1 ] 2>/dev/null; then lines=1; fi
+if [ "$lines" -gt 20 ] 2>/dev/null; then lines=20; fi
+
+# Already at bottom inside copy-mode: stay there. Do not cancel copy-mode;
+# keyboard input is the stable exit path.
+if [ "$pos" -eq 0 ]; then
+  /home/revar/.local/bin/tmux-cursor-hide-delayed "$pane" >/dev/null 2>&1 || true
+  exit 0
+fi
+
+# Allow reaching 0 naturally, but stay in copy-mode.
+if [ "$pos" -gt "$lines" ]; then
+  n="$lines"
+else
+  n="$pos"
+fi
+
+tmux send-keys -t "$pane" -X -N "$n" scroll-down 2>/dev/null || true
+/home/revar/.local/bin/tmux-cursor-hide-delayed "$pane" >/dev/null 2>&1 || true

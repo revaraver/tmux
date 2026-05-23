@@ -103,6 +103,7 @@ static void	window_copy_copy_selection(struct window_mode_entry *,
 		    const char *);
 static void	window_copy_append_selection(struct window_mode_entry *);
 static void	window_copy_clear_selection(struct window_mode_entry *);
+static void	window_copy_prepare_viewport_cancel(struct window_mode_entry *);
 static void	window_copy_copy_line(struct window_mode_entry *, char **,
 		    size_t *, u_int, u_int, u_int);
 static int	window_copy_in_set(struct window_mode_entry *, u_int, u_int,
@@ -441,6 +442,14 @@ window_copy_init(struct window_mode_entry *wme,
 		data->cy = cy - screen_hsize(data->backing);
 		data->oy = 0;
 	}
+	/* If normal-mode viewport was active, start copy-mode at same history view. */
+	if (wp->viewport_offset != 0) {
+		if (wp->viewport_offset > screen_hsize(data->backing))
+			data->oy = screen_hsize(data->backing);
+		else
+			data->oy = wp->viewport_offset;
+		wp->viewport_offset = 0;
+	}
 
 	data->scroll_exit = args_has(args, 'e');
 	data->hide_position = args_has(args, 'H');
@@ -487,7 +496,6 @@ window_copy_free(struct window_mode_entry *wme)
 	struct window_copy_mode_data	*data = wme->data;
 
 	evtimer_del(&data->dragtimer);
-
 	free(data->searchmark);
 	free(data->searchstr);
 	free(data->jumpchar);
@@ -497,6 +505,35 @@ window_copy_free(struct window_mode_entry *wme)
 
 	screen_free(&data->screen);
 	free(data);
+}
+
+/*
+ * Prepare to leave copy-mode into the lightweight normal-mode viewport.
+ * This must run before window_pane_reset_mode(), because reset frees wme/data.
+ */
+static void
+window_copy_prepare_viewport_cancel(struct window_mode_entry *wme)
+{
+	struct window_pane		*wp = wme->wp;
+	struct window_copy_mode_data	*data = wme->data;
+	struct grid			*gd = wp->base.grid;
+	u_int				 offset, backing_hsize;
+
+	if (data == NULL || data->oy == 0)
+		return;
+
+	offset = data->oy;
+	backing_hsize = screen_hsize(data->backing);
+	if (gd->hsize > backing_hsize)
+		offset += gd->hsize - backing_hsize;
+	if (offset > gd->hsize)
+		offset = gd->hsize;
+	if (offset == 0)
+		return;
+
+	wp->viewport_offset = offset;
+	wp->viewport_hscrolled = gd->hsize;
+	wp->flags |= PANE_REDRAW;
 }
 
 void
@@ -2449,9 +2486,14 @@ window_copy_command(struct window_mode_entry *wme, struct client *c,
 	}
 	wme->prefix = 1;
 
-	if (action == WINDOW_COPY_CMD_CANCEL)
+	if (action == WINDOW_COPY_CMD_CANCEL) {
+		window_copy_prepare_viewport_cancel(wme);
+		if (c != NULL && wme->wp->viewport_offset != 0) {
+			c->tty.flags |= TTY_NOCURSOR;
+			tty_update_mode(&c->tty, wme->screen->mode, wme->screen);
+		}
 		window_pane_reset_mode(wme->wp);
-	else if (action == WINDOW_COPY_CMD_REDRAW)
+	} else if (action == WINDOW_COPY_CMD_REDRAW)
 		window_copy_redraw_screen(wme);
 }
 

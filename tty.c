@@ -1277,9 +1277,10 @@ tty_check_overlay(struct tty *tty, u_int px, u_int py)
 	return (c->overlay_check(c, px, py));
 }
 
-void
-tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
-    u_int atx, u_int aty, const struct grid_cell *defaults, int *palette)
+static void
+tty_draw_line1(struct tty *tty, struct screen *s, u_int px, u_int py,
+    u_int gd_y, u_int nx, u_int atx, u_int aty,
+    const struct grid_cell *defaults, int *palette)
 {
 	struct grid		*gd = s->grid;
 	struct grid_cell	 gc, last;
@@ -1314,7 +1315,7 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 	sx = screen_size_x(s);
 	if (nx > sx)
 		nx = sx;
-	cellsize = grid_get_line(gd, gd->hsize + py)->cellsize;
+	cellsize = grid_get_line(gd, gd_y)->cellsize;
 	if (sx > cellsize)
 		sx = cellsize;
 	if (sx > tty->sx)
@@ -1326,7 +1327,7 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 	if (py == 0)
 		gl = NULL;
 	else
-		gl = grid_get_line(gd, gd->hsize + py - 1);
+		gl = grid_get_line(gd, gd_y - 1);
 	if (gl == NULL ||
 	    (~gl->flags & GRID_LINE_WRAPPED) ||
 	    atx != 0 ||
@@ -1352,7 +1353,7 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 	width = 0;
 
 	for (i = 0; i < sx; i++) {
-		grid_view_get_cell(gd, px + i, py, &gc);
+		grid_get_cell(gd, px + i, gd_y, &gc);
 		gcp = tty_check_codeset(tty, &gc);
 		if (len != 0 &&
 		    (!tty_check_overlay(tty, atx + ux + width, aty) ||
@@ -1432,6 +1433,22 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
 
 	tty->flags = (tty->flags & ~TTY_NOCURSOR) | flags;
 	tty_update_mode(tty, tty->mode, s);
+}
+
+void
+tty_draw_line(struct tty *tty, struct screen *s, u_int px, u_int py, u_int nx,
+    u_int atx, u_int aty, const struct grid_cell *defaults, int *palette)
+{
+	tty_draw_line1(tty, s, px, py, s->grid->hsize + py, nx, atx, aty,
+	    defaults, palette);
+}
+
+void
+tty_draw_line_at(struct tty *tty, struct screen *s, u_int px, u_int py,
+    u_int gd_y, u_int nx, u_int atx, u_int aty,
+    const struct grid_cell *defaults, int *palette)
+{
+	tty_draw_line1(tty, s, px, py, gd_y, nx, atx, aty, defaults, palette);
 }
 
 void

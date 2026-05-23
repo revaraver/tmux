@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Guarded wheel-up for tmux copy-mode. Uses cached Windows WheelScrollLines.
+set -u
+
+pane="${1:-}"
+if [ -z "$pane" ]; then
+  pane="$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)"
+fi
+[ -n "$pane" ] || exit 0
+
+lines="$(tmux show-environment -g TMUX_WHEEL_LINES 2>/dev/null | sed 's/^TMUX_WHEEL_LINES=//' || true)"
+case "$lines" in
+  ''|*[!0-9]*) lines=3 ;;
+esac
+if [ "$lines" -lt 1 ] 2>/dev/null; then lines=1; fi
+if [ "$lines" -gt 20 ] 2>/dev/null; then lines=20; fi
+
+tmux send-keys -t "$pane" -X -N "$lines" scroll-up 2>/dev/null || true
+/home/revar/.local/bin/tmux-cursor-hide-delayed >/dev/null 2>&1 || true

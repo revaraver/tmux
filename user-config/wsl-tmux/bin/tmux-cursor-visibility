@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  hide) seq=$'\033[?25l' ;;
+  show) seq=$'\033[?25h' ;;
+  *) echo "usage: $0 hide|show" >&2; exit 2 ;;
+esac
+
+# 写到所有已连接 tmux client 的 tty；失败就跳过，避免卡住 hook。
+tmux list-clients -F '#{client_tty}' 2>/dev/null | while IFS= read -r tty; do
+  [ -n "$tty" ] || continue
+  [ -w "$tty" ] || continue
+  printf '%s' "$seq" > "$tty" 2>/dev/null || true
+done

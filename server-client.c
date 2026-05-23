@@ -43,6 +43,7 @@ static void	server_client_check_modes(struct client *);
 static void	server_client_set_title(struct client *);
 static void	server_client_reset_state(struct client *);
 static int	server_client_assume_paste(struct session *);
+static u_int	server_client_wheel_lines(void);
 static void	server_client_update_latest(struct client *);
 
 static void	server_client_dispatch(struct imsg *, void *);
@@ -1083,6 +1084,25 @@ out:
 	return (key);
 }
 
+/* WT-like wheel line count; follows TMUX_WHEEL_LINES when config refreshes it. */
+static u_int
+server_client_wheel_lines(void)
+{
+	struct environ_entry	*envent;
+	char			*end;
+	long			 n;
+
+	envent = environ_find(global_environ, "TMUX_WHEEL_LINES");
+	if (envent == NULL || envent->value == NULL)
+		return (3);
+	n = strtol(envent->value, &end, 10);
+	if (*envent->value == '\0' || *end != '\0' || n < 1)
+		return (3);
+	if (n > 20)
+		return (20);
+	return ((u_int)n);
+}
+
 /* Is this fast enough to probably be a paste? */
 static int
 server_client_assume_paste(struct session *s)
@@ -1188,6 +1208,44 @@ server_client_key_callback(struct cmdq_item *item, void *data)
 	/* Forward mouse keys if disabled. */
 	if (KEYC_IS_MOUSE(key) && !options_get_number(s->options, "mouse"))
 		goto forward_key;
+
+	/*
+	 * Patched WT-like normal-mode scrollback. Wheel events over a pane no
+	 * longer need to enter copy-mode just to browse history; they move a
+	 * lightweight viewport while the pane stays in input mode. Drag/copy and
+	 * prefix copy-mode remain handled by existing bindings.
+	 */
+	if (wp != NULL && TAILQ_EMPTY(&wp->modes) &&
+	    (~wp->base.mode & ALL_MOUSE_MODES) &&
+	    server_client_is_default_key_table(c, c->keytable)) {
+		if (key == KEYC_WHEELUP_PANE) {
+			if (window_pane_viewport_scroll(wp,
+			    (int)server_client_wheel_lines())) {
+				/* Hide the real cursor immediately while detached. */
+				if (wp->viewport_offset != 0) {
+					c->tty.flags |= TTY_NOCURSOR;
+					tty_update_mode(&c->tty, wp->screen->mode, wp->screen);
+				}
+				goto out;
+			}
+		} else if (key == KEYC_WHEELDOWN_PANE && wp->viewport_offset != 0) {
+			window_pane_viewport_scroll(wp,
+			    -(int)server_client_wheel_lines());
+			if (wp->viewport_offset != 0)
+				c->tty.flags |= TTY_NOCURSOR;
+			else
+				c->tty.flags &= ~TTY_NOCURSOR;
+			tty_update_mode(&c->tty, wp->screen->mode, wp->screen);
+			goto out;
+		}
+	}
+
+	/* Typing while detached from the live bottom reattaches, WT-style. */
+	if (wp != NULL && !KEYC_IS_MOUSE(key) && wp->viewport_offset != 0) {
+		window_pane_viewport_clear(wp);
+		c->tty.flags &= ~TTY_NOCURSOR;
+		tty_update_mode(&c->tty, wp->screen->mode, wp->screen);
+	}
 
 	/* Treat everything as a regular key when pasting is detected. */
 	if (!KEYC_IS_MOUSE(key) && server_client_assume_paste(s))

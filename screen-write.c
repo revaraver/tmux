@@ -136,6 +136,15 @@ screen_write_set_client_cb(struct tty_ctx *ttyctx, struct client *c)
 		return (0);
 	if (wp->layout_cell == NULL)
 		return (0);
+	/*
+	 * While the normal-mode history viewport is detached from the live
+	 * bottom, never let application output write directly to the real tty.
+	 * The backing grid is still updated; visible history is redrawn only
+	 * from screen-redraw.c, keeping spinners/streaming output from flashing
+	 * through one line at the live cursor.
+	 */
+	if (wp->viewport_offset != 0)
+		return (0);
 
 	if (wp->flags & (PANE_REDRAW|PANE_DROP))
 		return (-1);
@@ -1563,11 +1572,26 @@ screen_write_collect_flush(struct screen_write_ctx *ctx, int scroll_only,
 		if (ctx->scrolled > s->rlower - s->rupper + 1)
 			ctx->scrolled = s->rlower - s->rupper + 1;
 
+		/*
+		 * Active live panes with prompt_toolkit/Rich often redraw a bottom
+		 * input box while output above scrolls. Sending the terminal a real
+		 * scroll command moves the whole box up for one frame, then the app
+		 * paints it back at the bottom: very visible jitter. Avoid the tty
+		 * scroll optimization for the active live pane and redraw the final
+		 * pane state instead.
+		 */
+		if (ctx->wp != NULL && ctx->wp == ctx->wp->window->active &&
+		    ctx->wp->viewport_offset == 0) {
+			ctx->wp->flags |= PANE_REDRAW;
+			goto skip_scroll_tty;
+		}
+
 		screen_write_initctx(ctx, &ttyctx, 1);
 		ttyctx.num = ctx->scrolled;
 		ttyctx.bg = ctx->bg;
 		tty_write(tty_cmd_scrollup, &ttyctx);
 	}
+skip_scroll_tty:
 	ctx->scrolled = 0;
 	ctx->bg = 8;
 

@@ -958,6 +958,8 @@ input_parse_buffer(struct window_pane *wp, u_char *buf, size_t len)
 {
 	struct input_ctx	*ictx = wp->ictx;
 	struct screen_write_ctx	*sctx = &ictx->ctx;
+	u_int			 old_hsize;
+	int			 detached;
 
 	if (len == 0)
 		return;
@@ -965,8 +967,16 @@ input_parse_buffer(struct window_pane *wp, u_char *buf, size_t len)
 	window_update_activity(wp->window);
 	wp->flags |= PANE_CHANGED;
 
-	/* NULL wp if there is a mode set as don't want to update the tty. */
-	if (TAILQ_EMPTY(&wp->modes))
+	old_hsize = wp->base.grid->hsize;
+	detached = (wp->viewport_offset != 0);
+
+	/*
+	 * If the user is viewing history through the lightweight normal-mode
+	 * viewport, keep parsing output into the backing grid but do not let
+	 * application writes directly repaint the terminal. A full pane redraw
+	 * below will render from the anchored history viewport instead.
+	 */
+	if (TAILQ_EMPTY(&wp->modes) && !detached)
 		screen_write_start_pane(sctx, wp, &wp->base);
 	else
 		screen_write_start(sctx, &wp->base);
@@ -976,6 +986,9 @@ input_parse_buffer(struct window_pane *wp, u_char *buf, size_t len)
 
 	input_parse(ictx, buf, len);
 	screen_write_stop(sctx);
+
+	if (detached)
+		window_pane_viewport_update(wp, old_hsize);
 }
 
 /* Parse given input for screen. */

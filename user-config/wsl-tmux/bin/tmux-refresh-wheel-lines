@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Refresh tmux wheel line count from Windows user setting.
+# Windows path: HKCU\Control Panel\Desktop\WheelScrollLines
+set -u
+
+lines=""
+if command -v powershell.exe >/dev/null 2>&1; then
+  lines="$(powershell.exe -NoProfile -Command "(Get-ItemProperty 'HKCU:\Control Panel\Desktop' -Name WheelScrollLines -ErrorAction SilentlyContinue).WheelScrollLines" 2>/dev/null | tr -d '\r' | awk 'NF{print; exit}' || true)"
+fi
+case "$lines" in
+  ''|*[!0-9]*) lines=3 ;;
+esac
+# Windows can use special values; keep tmux sane.
+if [ "$lines" -lt 1 ] 2>/dev/null; then lines=1; fi
+if [ "$lines" -gt 20 ] 2>/dev/null; then lines=20; fi
+
+tmux set-environment -g TMUX_WHEEL_LINES "$lines" 2>/dev/null || true

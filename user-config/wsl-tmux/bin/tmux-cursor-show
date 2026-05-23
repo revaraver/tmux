@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec /home/revar/.local/bin/tmux-cursor-visibility show
